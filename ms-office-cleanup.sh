@@ -17,7 +17,7 @@
 # - Comprehensive research from multiple sources
 #
 # Created: December 2025
-# Version: 1.7
+# Version: 1.8
 #
 # DISCLAIMER: Use at your own risk. Always backup important data first.
 #
@@ -1041,6 +1041,156 @@ remove_keychain_entries() {
 }
 
 ################################################################################
+# Browser Data (Microsoft cached accounts in browser IndexedDB)
+################################################################################
+
+check_browser_data() {
+    print_section "Browser Microsoft Data (IndexedDB/Cookies)"
+
+    local found_browser=false
+
+    # Brave Browser
+    local brave_idb="$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default/IndexedDB"
+    if [[ -d "$brave_idb" ]]; then
+        local brave_ms_dirs
+        brave_ms_dirs=$(find "$brave_idb" -maxdepth 1 \( \
+            -name "https_*microsoft*" -o \
+            -name "https_*teams*" -o \
+            -name "https_m365*" -o \
+            -name "https_*entra*" -o \
+            -name "https_*office*" -o \
+            -name "https_login.microsoftonline*" -o \
+            -name "https_*sharepoint*" \
+        \) 2>/dev/null)
+        if [[ -n "$brave_ms_dirs" ]]; then
+            local count
+            count=$(echo "$brave_ms_dirs" | wc -l | tr -d ' ')
+            print_found "Brave Microsoft IndexedDB ($count directories)"
+            found_browser=true
+        fi
+    fi
+
+    # Superhuman (Electron app with Microsoft auth)
+    local superhuman_cookies="$HOME/Library/Application Support/Superhuman/Cookies"
+    if [[ -f "$superhuman_cookies" ]]; then
+        # Check if it contains Microsoft cookies
+        if strings "$superhuman_cookies" 2>/dev/null | grep -qi "microsoft\|login.microsoftonline"; then
+            print_found "Superhuman Microsoft cookies"
+            found_browser=true
+        fi
+    fi
+
+    local superhuman_ls="$HOME/Library/Application Support/Superhuman/Local Storage/leveldb"
+    if [[ -d "$superhuman_ls" ]]; then
+        if strings "$superhuman_ls"/*.ldb 2>/dev/null | grep -qi "microsoft\|teamcinder\|vital-enterprises"; then
+            print_found "Superhuman Local Storage (Microsoft accounts)"
+            found_browser=true
+        fi
+    fi
+
+    # Chrome (if present)
+    local chrome_idb="$HOME/Library/Application Support/Google/Chrome/Default/IndexedDB"
+    if [[ -d "$chrome_idb" ]]; then
+        local chrome_ms_dirs
+        chrome_ms_dirs=$(find "$chrome_idb" -maxdepth 1 \( \
+            -name "https_*microsoft*" -o \
+            -name "https_*teams*" -o \
+            -name "https_m365*" \
+        \) 2>/dev/null)
+        if [[ -n "$chrome_ms_dirs" ]]; then
+            local count
+            count=$(echo "$chrome_ms_dirs" | wc -l | tr -d ' ')
+            print_found "Chrome Microsoft IndexedDB ($count directories)"
+            found_browser=true
+        fi
+    fi
+
+    if [[ "$found_browser" == false ]]; then
+        echo -e "  ${YELLOW}○${NC} No Microsoft browser data found"
+    fi
+}
+
+remove_browser_data() {
+    print_section "Removing Browser Microsoft Data"
+
+    local removed_browser=0
+
+    # Brave Browser IndexedDB
+    local brave_idb="$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default/IndexedDB"
+    if [[ -d "$brave_idb" ]]; then
+        # Remove Microsoft-related IndexedDB directories
+        local patterns=(
+            "https_*microsoft*"
+            "https_*teams*"
+            "https_m365*"
+            "https_*entra*"
+            "https_*office*"
+            "https_login.microsoftonline*"
+            "https_*sharepoint*"
+        )
+
+        for pattern in "${patterns[@]}"; do
+            while IFS= read -r -d '' dir; do
+                if [[ -n "$dir" ]]; then
+                    if rm -rf "$dir" 2>/dev/null; then
+                        ((removed_browser++)) || true
+                    fi
+                fi
+            done < <(find "$brave_idb" -maxdepth 1 -name "$pattern" -print0 2>/dev/null)
+        done
+    fi
+
+    if [[ $removed_browser -gt 0 ]]; then
+        print_removed "Brave Microsoft IndexedDB ($removed_browser directories)"
+    fi
+
+    # Superhuman cookies (delete the cookies file - will regenerate on next launch)
+    local superhuman_cookies="$HOME/Library/Application Support/Superhuman/Cookies"
+    if [[ -f "$superhuman_cookies" ]]; then
+        if strings "$superhuman_cookies" 2>/dev/null | grep -qi "microsoft\|login.microsoftonline"; then
+            if rm -f "$superhuman_cookies" "$superhuman_cookies-journal" 2>/dev/null; then
+                print_removed "Superhuman Microsoft cookies"
+            fi
+        fi
+    fi
+
+    # Superhuman Local Storage
+    local superhuman_ls="$HOME/Library/Application Support/Superhuman/Local Storage/leveldb"
+    if [[ -d "$superhuman_ls" ]]; then
+        if strings "$superhuman_ls"/*.ldb 2>/dev/null | grep -qi "microsoft\|teamcinder\|vital-enterprises"; then
+            if rm -rf "$superhuman_ls"/* 2>/dev/null; then
+                print_removed "Superhuman Local Storage"
+            fi
+        fi
+    fi
+
+    # Chrome IndexedDB (if present)
+    local chrome_idb="$HOME/Library/Application Support/Google/Chrome/Default/IndexedDB"
+    if [[ -d "$chrome_idb" ]]; then
+        local removed_chrome=0
+        local patterns=(
+            "https_*microsoft*"
+            "https_*teams*"
+            "https_m365*"
+        )
+
+        for pattern in "${patterns[@]}"; do
+            while IFS= read -r -d '' dir; do
+                if [[ -n "$dir" ]]; then
+                    if rm -rf "$dir" 2>/dev/null; then
+                        ((removed_chrome++)) || true
+                    fi
+                fi
+            done < <(find "$chrome_idb" -maxdepth 1 -name "$pattern" -print0 2>/dev/null)
+        done
+
+        if [[ $removed_chrome -gt 0 ]]; then
+            print_removed "Chrome Microsoft IndexedDB ($removed_chrome directories)"
+        fi
+    fi
+}
+
+################################################################################
 # Login Items
 ################################################################################
 
@@ -1136,6 +1286,7 @@ run_audit() {
     check_receipts
     check_identity_cache
     check_keychain
+    check_browser_data
     check_login_items
 
     show_audit_summary
@@ -1197,6 +1348,7 @@ run_removal() {
     remove_receipts
     remove_identity_cache
     remove_keychain_entries
+    remove_browser_data
 
     # Show manual steps
     check_login_items
