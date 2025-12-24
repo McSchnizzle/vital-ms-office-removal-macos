@@ -17,7 +17,7 @@
 # - Comprehensive research from multiple sources
 #
 # Created: December 2025
-# Version: 1.3
+# Version: 1.4
 #
 # DISCLAIMER: Use at your own risk. Always backup important data first.
 #
@@ -417,7 +417,7 @@ check_application_scripts() {
             if [[ -n "$dir" ]]; then
                 print_found "$(basename "$dir")"
             fi
-        done < <(find "$scripts_path" -maxdepth 1 -name "com.microsoft.*" -print0 2>/dev/null)
+        done < <(find "$scripts_path" -maxdepth 1 \( -name "com.microsoft.*" -o -name "UBF8T346G9.*" \) -print0 2>/dev/null)
     fi
 }
 
@@ -426,6 +426,7 @@ remove_application_scripts() {
 
     local scripts_path="$HOME/Library/Application Scripts"
     remove_path_pattern "$scripts_path" "com.microsoft.*" "Microsoft application scripts"
+    remove_path_pattern "$scripts_path" "UBF8T346G9.*" "Office application scripts"
 }
 
 ################################################################################
@@ -740,19 +741,115 @@ remove_receipts() {
 }
 
 ################################################################################
+# Identity Cache (Azure AD / MSAL tokens)
+################################################################################
+
+check_identity_cache() {
+    print_section "Identity Cache (Azure AD tokens)"
+
+    # OneAuth folder in Application Support
+    local oneauth_path="$HOME/Library/Application Support/Microsoft/OneAuth"
+    if [[ -d "$oneauth_path" ]]; then
+        print_found "OneAuth cache"
+    fi
+
+    # IdentityCache folder
+    local identity_path="$HOME/Library/Application Support/Microsoft/IdentityCache"
+    if [[ -d "$identity_path" ]]; then
+        print_found "IdentityCache"
+    fi
+
+    # Saved Application State
+    local saved_state="$HOME/Library/Saved Application State/com.microsoft.teams.savedState"
+    if [[ -d "$saved_state" ]]; then
+        print_found "Teams saved state"
+    fi
+
+    # HTTPStorages
+    local http_storage="$HOME/Library/HTTPStorages/com.microsoft.teams"
+    if [[ -d "$http_storage" ]]; then
+        print_found "Teams HTTP storage"
+    fi
+}
+
+remove_identity_cache() {
+    print_section "Removing Identity Cache"
+
+    # OneAuth folder
+    remove_path "$HOME/Library/Application Support/Microsoft/OneAuth" "OneAuth cache"
+
+    # IdentityCache folder
+    remove_path "$HOME/Library/Application Support/Microsoft/IdentityCache" "IdentityCache"
+
+    # Saved Application State
+    remove_path "$HOME/Library/Saved Application State/com.microsoft.teams.savedState" "Teams saved state"
+
+    # HTTPStorages
+    remove_path "$HOME/Library/HTTPStorages/com.microsoft.teams" "Teams HTTP storage"
+}
+
+################################################################################
 # Keychain Entries
 ################################################################################
 
 check_keychain() {
     print_section "Keychain Entries"
 
-    print_info "Keychain entries should be checked manually."
-    print_info "Open Keychain Access → Search for 'Microsoft' or 'Teams'"
-    echo -e "     - Microsoft"
-    echo -e "     - Office"
-    echo -e "     - Teams"
-    echo -e "     - OneDrive"
-    echo -e "     - Outlook"
+    # Check for known Microsoft keychain entries
+    local found_keychain=false
+
+    if security find-generic-password -s "Microsoft Teams Safe Storage" >/dev/null 2>&1; then
+        print_found "Microsoft Teams Safe Storage"
+        found_keychain=true
+    fi
+
+    if security find-generic-password -s "OneAuthAccount" >/dev/null 2>&1; then
+        print_found "OneAuthAccount (Azure AD tokens)"
+        found_keychain=true
+    fi
+
+    if security find-generic-password -s "com.microsoft.adalcache" >/dev/null 2>&1; then
+        print_found "com.microsoft.adalcache"
+        found_keychain=true
+    fi
+
+    if security find-generic-password -s "com.microsoft.onedrive.cookies" >/dev/null 2>&1; then
+        print_found "com.microsoft.onedrive.cookies"
+        found_keychain=true
+    fi
+
+    if [[ "$found_keychain" == false ]]; then
+        echo -e "  ${YELLOW}○${NC} No Microsoft keychain entries found"
+    fi
+}
+
+remove_keychain_entries() {
+    print_section "Removing Keychain Entries"
+
+    # Delete Microsoft Teams Safe Storage
+    if security delete-generic-password -s "Microsoft Teams Safe Storage" >/dev/null 2>&1; then
+        print_removed "Microsoft Teams Safe Storage"
+    fi
+
+    # Delete all OneAuthAccount entries (there can be multiple)
+    local deleted_oneauth=0
+    while security delete-generic-password -s "OneAuthAccount" >/dev/null 2>&1; do
+        ((deleted_oneauth++)) || true
+    done
+    if [[ $deleted_oneauth -gt 0 ]]; then
+        print_removed "OneAuthAccount entries ($deleted_oneauth)"
+        ((REMOVED_COUNT+=deleted_oneauth-1)) || true  # Already counted one
+    fi
+
+    # Delete adalcache
+    if security delete-generic-password -s "com.microsoft.adalcache" >/dev/null 2>&1; then
+        print_removed "com.microsoft.adalcache"
+    fi
+
+    # Delete OneDrive cookies
+    if security delete-generic-password -s "com.microsoft.onedrive.cookies" >/dev/null 2>&1; then
+        print_removed "com.microsoft.onedrive.cookies"
+    fi
 }
 
 ################################################################################
@@ -818,9 +915,8 @@ show_removal_summary() {
     echo ""
     print_info "Manual steps remaining:"
     echo "  1. Check Login Items: System Settings → General → Login Items"
-    echo "  2. Check Keychain Access: Search for 'Microsoft' and delete entries"
-    echo "  3. Remove Microsoft apps from your Dock (right-click → Remove from Dock)"
-    echo "  4. Empty your Trash"
+    echo "  2. Remove Microsoft apps from your Dock (right-click → Remove from Dock)"
+    echo "  3. Empty your Trash"
     echo ""
 }
 
@@ -850,6 +946,7 @@ run_audit() {
     check_privileged_helpers
     check_fonts
     check_receipts
+    check_identity_cache
     check_keychain
     check_login_items
 
@@ -910,9 +1007,10 @@ run_removal() {
     remove_privileged_helpers
     remove_fonts
     remove_receipts
+    remove_identity_cache
+    remove_keychain_entries
 
     # Show manual steps
-    check_keychain
     check_login_items
 
     show_removal_summary

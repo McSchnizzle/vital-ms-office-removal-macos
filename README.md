@@ -6,6 +6,9 @@ A comprehensive script to completely remove ALL Microsoft Office products from m
 - **Microsoft Teams** (new and classic versions)
 - **Microsoft OneDrive**
 - **Microsoft AutoUpdate**
+- **Windows App / Remote Desktop** (Microsoft's remote desktop client)
+- **Azure AD / MSAL identity caches** (cached login credentials and tenant data)
+- **Keychain entries** (automatically detected and removed)
 - **All associated files**, preferences, caches, launch agents, and background services
 
 ## Why This Script?
@@ -18,9 +21,10 @@ Microsoft products on Mac leave behind numerous files in various locations. Simp
 - Launch agents and daemons
 - Privileged helper tools
 - Package receipts
-- Keychain entries
+- **Keychain entries** (now automatically removed!)
+- **Azure AD / MSAL identity caches** (cached tenant credentials that cause login issues)
 
-This script finds and removes ALL of these locations.
+This script finds and removes ALL of these locations, including the credential caches that can cause problems when switching Microsoft 365 tenants or reinstalling Office.
 
 ## Quick Start
 
@@ -79,7 +83,8 @@ For scripted/automated deployments:
 - Checks for running Microsoft processes
 - Lists all found items with their paths
 - Shows package receipts
-- Reminds you to check Keychain and Login Items manually
+- **Detects Azure AD / MSAL identity caches** (OneAuth, IdentityCache)
+- **Scans Keychain for Microsoft credentials** (Teams, OneDrive, Office, Azure AD tokens)
 - **Does NOT delete anything**
 
 ### Removal Mode (--remove)
@@ -94,6 +99,8 @@ For scripted/automated deployments:
 - Removes privileged helper tools
 - Removes Microsoft fonts
 - Forgets package receipts (pkgutil)
+- **Clears Azure AD / MSAL identity caches** (OneAuth, IdentityCache, Teams HTTP storage)
+- **Removes Keychain entries** (Teams Safe Storage, OneAuthAccount, OneDrive, ADAL cache)
 - Prompts to restart your Mac
 
 ## Locations Checked/Cleaned
@@ -101,16 +108,21 @@ For scripted/automated deployments:
 ### Applications
 - `/Applications/Microsoft *.app`
 - `/Applications/OneDrive.app`
+- `/Applications/Windows App.app`
+- `/Applications/Remote Desktop.app`
 
 ### User Library (`~/Library/`)
 | Location | What's There |
 |----------|--------------|
 | `Containers/com.microsoft.*` | App sandboxed data |
-| `Group Containers/UBF8T346G9.*` | Shared Office data |
+| `Group Containers/UBF8T346G9.*` | Shared Office data, **OneAuth identity cache** |
 | `Application Scripts/com.microsoft.*` | App scripts |
+| `Application Scripts/UBF8T346G9.*` | Office extension scripts |
 | `Preferences/com.microsoft.*` | User preferences |
 | `Caches/com.microsoft.*` | Cached data |
-| `Application Support/Microsoft/` | Support files |
+| `Application Support/Microsoft/` | Support files, **OneAuth & IdentityCache folders** |
+| `Saved Application State/com.microsoft.*` | App state data |
+| `HTTPStorages/com.microsoft.*` | HTTP storage caches |
 | `LaunchAgents/com.microsoft.*` | Background agents |
 
 ### System Library (`/Library/`)
@@ -126,24 +138,34 @@ For scripted/automated deployments:
 ### Package Receipts
 - All `com.microsoft.*` packages registered with macOS
 
+### Keychain Entries (automatically removed)
+The script automatically detects and removes these keychain entries:
+- `Microsoft Teams Safe Storage` - Teams credentials
+- `OneAuthAccount` - Azure AD / Entra ID tokens (can have multiple entries)
+- `com.microsoft.adalcache` - ADAL authentication cache
+- `com.microsoft.onedrive.cookies` - OneDrive session cookies
+- `com.microsoft.OneDrive.FinderSync.HockeySDK` - OneDrive telemetry
+- `MicrosoftOfficeIdentityCache` - Office license cache
+
 ## Manual Steps Required
 
-Some items cannot be removed automatically:
+Most cleanup is now fully automated. Only a few items require manual action:
 
-### 1. Keychain Entries
-1. Open **Keychain Access** (Spotlight: `Cmd+Space`, type "Keychain")
-2. Search for: `Microsoft`, `Office`, `Teams`, `OneDrive`, `Outlook`
-3. Delete any entries found
-
-### 2. Login Items
+### 1. Login Items
 1. Open **System Settings** → **General** → **Login Items**
 2. Remove any Microsoft items from:
    - "Open at Login"
    - "Allow in the Background"
 
-### 3. Dock Icons
+### 2. Dock Icons
 - Right-click any Microsoft app in the Dock
 - Select **Options** → **Remove from Dock**
+
+### 3. Additional Keychain Entries (if any remain)
+The script automatically removes known Microsoft keychain entries. If you still see any after running the script:
+1. Open **Keychain Access** (Spotlight: `Cmd+Space`, type "Keychain")
+2. Search for: `Microsoft`, `Office`, `Teams`, `OneDrive`, `Outlook`
+3. Delete any entries found
 
 ## Important Warnings
 
@@ -186,6 +208,20 @@ chmod +x ms-office-cleanup.sh
 2. Check Activity Monitor for lingering processes
 3. Ensure Terminal has Full Disk Access (see above)
 4. Restart and run the script again
+
+### Tenant migration issues (AADSTS50020 error)
+
+If you're getting login errors after your organization changed Microsoft 365 tenants, or you see errors like:
+- `AADSTS50020: User account from identity provider does not exist in tenant`
+- Office apps trying to use an old tenant ID
+- Can't log into Teams/Outlook after reinstalling Office
+
+**This is exactly what this script fixes!** The identity cache cleanup removes:
+- Cached tenant IDs from `~/Library/Group Containers/UBF8T346G9.com.microsoft.oneauth`
+- Azure AD tokens from Keychain (`OneAuthAccount` entries)
+- MSAL/ADAL authentication caches
+
+Run the full removal with `--remove` flag, restart your Mac, then reinstall Office. The apps will properly discover your new tenant on first login.
 
 ## Based On
 
