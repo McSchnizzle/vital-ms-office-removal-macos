@@ -142,6 +142,8 @@ For scripted/automated deployments:
 The script automatically detects and removes these keychain entries:
 - `Microsoft Teams Safe Storage` - Teams credentials
 - `OneAuthAccount` - Azure AD / Entra ID tokens (can have multiple entries)
+- `Microsoft Office Identities Cache 3` - Office cached identities
+- `Microsoft Office Identities Settings 3` - Office identity settings
 - `com.microsoft.adalcache` - ADAL authentication cache
 - `com.microsoft.onedrive.cookies` - OneDrive session cookies
 - `com.microsoft.OneDrive.FinderSync.HockeySDK` - OneDrive telemetry
@@ -217,11 +219,14 @@ If you're getting login errors after your organization changed Microsoft 365 ten
 - Can't log into Teams/Outlook after reinstalling Office
 
 **This is exactly what this script fixes!** The identity cache cleanup removes:
-- Cached tenant IDs from `~/Library/Group Containers/UBF8T346G9.com.microsoft.oneauth`
+- Cached tenant IDs from `~/Library/Group Containers/UBF8T346G9.com.microsoft.oneauth/BlobStore`
 - Azure AD tokens from Keychain (`OneAuthAccount` entries)
+- Office identity caches (`Microsoft Office Identities Cache 3`)
 - MSAL/ADAL authentication caches
 
 Run the full removal with `--remove` flag, restart your Mac, then reinstall Office. The apps will properly discover your new tenant on first login.
+
+**Important:** If you still see old accounts in the Teams login picker after cleanup, try clicking **"Create or use another account"** instead of selecting a cached account. This forces fresh tenant discovery. If accounts keep reappearing, check if **iCloud Keychain** is syncing them from another device.
 
 ## Based On
 
