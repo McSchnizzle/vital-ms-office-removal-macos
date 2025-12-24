@@ -317,6 +317,8 @@ check_applications() {
         "/Applications/Microsoft Teams classic.app"
         "/Applications/OneDrive.app"
         "/Applications/Microsoft AutoUpdate.app"
+        "/Applications/Windows App.app"
+        "/Applications/Microsoft Remote Desktop.app"
     )
 
     for app in "${apps[@]}"; do
@@ -337,6 +339,8 @@ remove_applications() {
         "/Applications/Microsoft Teams classic.app"
         "/Applications/OneDrive.app"
         "/Applications/Microsoft AutoUpdate.app"
+        "/Applications/Windows App.app"
+        "/Applications/Microsoft Remote Desktop.app"
     )
 
     for app in "${apps[@]}"; do
