@@ -17,7 +17,7 @@
 # - Comprehensive research from multiple sources
 #
 # Created: December 2025
-# Version: 1.2
+# Version: 1.3
 #
 # DISCLAIMER: Use at your own risk. Always backup important data first.
 #
@@ -84,6 +84,58 @@ print_info() {
 }
 
 ################################################################################
+# Full Disk Access Check
+################################################################################
+
+check_full_disk_access() {
+    # Try to read a TCC-protected database as a test
+    # If we can read from ~/Library/Containers, we likely have FDA or can remove user containers
+    # The real test is whether we can modify .com.apple.containermanagerd.metadata.plist
+
+    local test_container=""
+    local containers_path="$HOME/Library/Containers"
+
+    # Find a Microsoft container to test
+    if [[ -d "$containers_path" ]]; then
+        test_container=$(find "$containers_path" -maxdepth 1 -name "com.microsoft.*" -print -quit 2>/dev/null)
+    fi
+
+    if [[ -n "$test_container" ]]; then
+        local metadata_file="$test_container/.com.apple.containermanagerd.metadata.plist"
+        if [[ -f "$metadata_file" ]]; then
+            # Try to remove it - if it fails, we don't have FDA
+            if ! rm -f "$metadata_file" 2>/dev/null; then
+                return 1  # No FDA
+            fi
+        fi
+    fi
+
+    return 0  # Either has FDA or no containers to test
+}
+
+show_fda_instructions() {
+    echo ""
+    print_header "FULL DISK ACCESS REQUIRED"
+    echo -e "${YELLOW}macOS protects app containers with its sandbox system.${NC}"
+    echo -e "${YELLOW}To fully remove Microsoft containers, Terminal needs Full Disk Access.${NC}"
+    echo ""
+    echo -e "${BOLD}To enable Full Disk Access for Terminal:${NC}"
+    echo ""
+    echo "  1. Open ${CYAN}System Settings${NC} (or System Preferences on older macOS)"
+    echo "  2. Go to ${CYAN}Privacy & Security${NC} → ${CYAN}Full Disk Access${NC}"
+    echo "  3. Click the ${CYAN}+${NC} button (you may need to unlock with your password)"
+    echo "  4. Navigate to ${CYAN}/Applications/Utilities/${NC}"
+    echo "  5. Select ${CYAN}Terminal${NC} and click ${CYAN}Open${NC}"
+    echo "  6. Toggle Terminal ${CYAN}ON${NC} in the list"
+    echo "  7. ${BOLD}Quit Terminal completely${NC} (Cmd+Q)"
+    echo "  8. Re-open Terminal and run this script again"
+    echo ""
+    echo -e "${BLUE}Quick Access:${NC} Run this command to open the settings directly:"
+    echo -e "     ${BOLD}open x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles${NC}"
+    echo ""
+}
+
+################################################################################
 # Sudo Handling
 ################################################################################
 
@@ -147,7 +199,7 @@ remove_path() {
         else
             # Check if it's a container protected by containermanagerd
             if [[ "$path" == *"/Containers/"* ]] || [[ "$path" == *"/Group Containers/"* ]]; then
-                print_warning "Protected by macOS sandbox: $(basename "$path") (requires restart)"
+                print_warning "Protected container: $(basename "$path") (needs Full Disk Access)"
                 ((PROTECTED_COUNT++)) || true
                 return 1
             else
@@ -729,6 +781,9 @@ show_audit_summary() {
         echo ""
         print_info "To skip confirmations, add --force:"
         echo -e "     ${BOLD}sudo ./ms-office-cleanup.sh --remove --force${NC}"
+        echo ""
+        print_warning "Note: If app containers fail to remove, Terminal needs Full Disk Access."
+        print_info "See: System Settings → Privacy & Security → Full Disk Access → Terminal"
     else
         echo -e "${GREEN}No Microsoft Office items found on this system!${NC}"
         echo -e "${GREEN}Your Mac appears to be clean of Microsoft software.${NC}"
@@ -744,12 +799,16 @@ show_removal_summary() {
 
     if [[ $PROTECTED_COUNT -gt 0 ]]; then
         echo ""
-        echo -e "${YELLOW}⚠️  $PROTECTED_COUNT items are protected by macOS sandbox.${NC}"
-        echo -e "${YELLOW}   These are app containers that macOS protects while running.${NC}"
+        echo -e "${YELLOW}⚠️  $PROTECTED_COUNT containers are protected by macOS sandbox.${NC}"
         echo ""
-        echo -e "${BOLD}After you restart your Mac:${NC}"
-        echo -e "  Run this script again with ${CYAN}--remove${NC} to remove remaining items."
-        echo -e "  Or use ${CYAN}--audit${NC} to verify what's left."
+        echo -e "${BOLD}To remove these protected containers:${NC}"
+        echo -e "  ${CYAN}Terminal needs Full Disk Access permission.${NC}"
+        echo ""
+        show_fda_instructions
+        echo -e "${BOLD}After enabling Full Disk Access:${NC}"
+        echo -e "  1. Quit Terminal completely (Cmd+Q)"
+        echo -e "  2. Re-open Terminal"
+        echo -e "  3. Run: ${CYAN}sudo ./ms-office-cleanup.sh --remove --force${NC}"
     fi
 
     echo ""

@@ -155,10 +155,25 @@ Some items cannot be removed automatically:
 
 ## Troubleshooting
 
-### "Operation not permitted" errors
-Some files may require special permissions. The script will try sudo automatically. If issues persist, you may need to:
-1. Disable System Integrity Protection (SIP) temporarily, OR
-2. Boot into Recovery Mode to remove stubborn files
+### Protected containers won't delete (most common issue)
+
+macOS Sonoma and later protect app containers with a sandbox system called `containermanagerd`.
+Even with sudo, you'll see "Operation not permitted" errors for containers in `~/Library/Containers/`.
+
+**Solution: Grant Terminal Full Disk Access**
+
+1. Open **System Settings** → **Privacy & Security** → **Full Disk Access**
+2. Click the **+** button (unlock with your password if needed)
+3. Navigate to **/Applications/Utilities/**
+4. Select **Terminal** and click **Open**
+5. Toggle Terminal **ON** in the list
+6. **Quit Terminal completely** (Cmd+Q)
+7. Re-open Terminal and run the script again
+
+**Quick access to settings:**
+```bash
+open x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles
+```
 
 ### Script won't execute
 ```bash
@@ -169,8 +184,8 @@ chmod +x ms-office-cleanup.sh
 ### Files still remain after removal
 1. Make sure all Microsoft apps are quit
 2. Check Activity Monitor for lingering processes
-3. Restart and run the script again
-4. Some files may be locked - check file permissions
+3. Ensure Terminal has Full Disk Access (see above)
+4. Restart and run the script again
 
 ## Based On
 
