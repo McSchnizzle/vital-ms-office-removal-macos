@@ -17,7 +17,7 @@
 # - Comprehensive research from multiple sources
 #
 # Created: December 2025
-# Version: 1.4
+# Version: 1.5
 #
 # DISCLAIMER: Use at your own risk. Always backup important data first.
 #
@@ -747,10 +747,19 @@ remove_receipts() {
 check_identity_cache() {
     print_section "Identity Cache (Azure AD tokens)"
 
-    # OneAuth folder in Application Support
+    # OneAuth Group Container (PRIMARY location for cached tenant/account data)
+    local oneauth_gc="$HOME/Library/Group Containers/UBF8T346G9.com.microsoft.oneauth"
+    if [[ -d "$oneauth_gc/BlobStore" ]] && [[ -n "$(ls -A "$oneauth_gc/BlobStore" 2>/dev/null)" ]]; then
+        print_found "OneAuth BlobStore (tenant/account cache)"
+    fi
+    if [[ -d "$oneauth_gc/Library" ]] && [[ -n "$(ls -A "$oneauth_gc/Library" 2>/dev/null)" ]]; then
+        print_found "OneAuth Library data"
+    fi
+
+    # OneAuth folder in Application Support (secondary location)
     local oneauth_path="$HOME/Library/Application Support/Microsoft/OneAuth"
     if [[ -d "$oneauth_path" ]]; then
-        print_found "OneAuth cache"
+        print_found "OneAuth Application Support cache"
     fi
 
     # IdentityCache folder
@@ -775,8 +784,23 @@ check_identity_cache() {
 remove_identity_cache() {
     print_section "Removing Identity Cache"
 
-    # OneAuth folder
-    remove_path "$HOME/Library/Application Support/Microsoft/OneAuth" "OneAuth cache"
+    # OneAuth Group Container contents (PRIMARY location - clear contents, not container)
+    local oneauth_gc="$HOME/Library/Group Containers/UBF8T346G9.com.microsoft.oneauth"
+    if [[ -d "$oneauth_gc/BlobStore" ]]; then
+        rm -rf "$oneauth_gc/BlobStore"/* 2>/dev/null
+        if [[ -z "$(ls -A "$oneauth_gc/BlobStore" 2>/dev/null)" ]]; then
+            print_removed "OneAuth BlobStore contents"
+        fi
+    fi
+    if [[ -d "$oneauth_gc/Library" ]]; then
+        rm -rf "$oneauth_gc/Library"/* 2>/dev/null
+        if [[ -z "$(ls -A "$oneauth_gc/Library" 2>/dev/null)" ]]; then
+            print_removed "OneAuth Library contents"
+        fi
+    fi
+
+    # OneAuth folder in Application Support (secondary location)
+    remove_path "$HOME/Library/Application Support/Microsoft/OneAuth" "OneAuth Application Support cache"
 
     # IdentityCache folder
     remove_path "$HOME/Library/Application Support/Microsoft/IdentityCache" "IdentityCache"
@@ -798,13 +822,14 @@ check_keychain() {
     # Check for known Microsoft keychain entries
     local found_keychain=false
 
+    # Service-based entries (use -s)
     if security find-generic-password -s "Microsoft Teams Safe Storage" >/dev/null 2>&1; then
         print_found "Microsoft Teams Safe Storage"
         found_keychain=true
     fi
 
     if security find-generic-password -s "OneAuthAccount" >/dev/null 2>&1; then
-        print_found "OneAuthAccount (Azure AD tokens)"
+        print_found "OneAuthAccount (Azure AD tokens - may have multiple)"
         found_keychain=true
     fi
 
@@ -818,6 +843,27 @@ check_keychain() {
         found_keychain=true
     fi
 
+    if security find-generic-password -s "com.microsoft.OneDrive.FinderSync.HockeySDK" >/dev/null 2>&1; then
+        print_found "OneDrive FinderSync HockeySDK"
+        found_keychain=true
+    fi
+
+    if security find-generic-password -s "MicrosoftOfficeIdentityCache" >/dev/null 2>&1; then
+        print_found "MicrosoftOfficeIdentityCache"
+        found_keychain=true
+    fi
+
+    # Account-based entries (use -a) - these have no service name
+    if security find-generic-password -a "Microsoft Office Identities Cache 3" >/dev/null 2>&1; then
+        print_found "Microsoft Office Identities Cache 3"
+        found_keychain=true
+    fi
+
+    if security find-generic-password -a "Microsoft Office Identities Settings 3" >/dev/null 2>&1; then
+        print_found "Microsoft Office Identities Settings 3"
+        found_keychain=true
+    fi
+
     if [[ "$found_keychain" == false ]]; then
         echo -e "  ${YELLOW}○${NC} No Microsoft keychain entries found"
     fi
@@ -826,12 +872,14 @@ check_keychain() {
 remove_keychain_entries() {
     print_section "Removing Keychain Entries"
 
+    # Service-based entries (use -s)
+
     # Delete Microsoft Teams Safe Storage
     if security delete-generic-password -s "Microsoft Teams Safe Storage" >/dev/null 2>&1; then
         print_removed "Microsoft Teams Safe Storage"
     fi
 
-    # Delete all OneAuthAccount entries (there can be multiple)
+    # Delete all OneAuthAccount entries (there can be multiple - loop until all gone)
     local deleted_oneauth=0
     while security delete-generic-password -s "OneAuthAccount" >/dev/null 2>&1; do
         ((deleted_oneauth++)) || true
@@ -849,6 +897,28 @@ remove_keychain_entries() {
     # Delete OneDrive cookies
     if security delete-generic-password -s "com.microsoft.onedrive.cookies" >/dev/null 2>&1; then
         print_removed "com.microsoft.onedrive.cookies"
+    fi
+
+    # Delete OneDrive FinderSync HockeySDK
+    if security delete-generic-password -s "com.microsoft.OneDrive.FinderSync.HockeySDK" >/dev/null 2>&1; then
+        print_removed "OneDrive FinderSync HockeySDK"
+    fi
+
+    # Delete MicrosoftOfficeIdentityCache
+    if security delete-generic-password -s "MicrosoftOfficeIdentityCache" >/dev/null 2>&1; then
+        print_removed "MicrosoftOfficeIdentityCache"
+    fi
+
+    # Account-based entries (use -a) - these have no service name
+
+    # Delete Microsoft Office Identities Cache 3
+    if security delete-generic-password -a "Microsoft Office Identities Cache 3" >/dev/null 2>&1; then
+        print_removed "Microsoft Office Identities Cache 3"
+    fi
+
+    # Delete Microsoft Office Identities Settings 3
+    if security delete-generic-password -a "Microsoft Office Identities Settings 3" >/dev/null 2>&1; then
+        print_removed "Microsoft Office Identities Settings 3"
     fi
 }
 
