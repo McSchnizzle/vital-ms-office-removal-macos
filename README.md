@@ -114,8 +114,11 @@ For scripted/automated deployments:
 ### User Library (`~/Library/`)
 | Location | What's There |
 |----------|--------------|
+| `Containers/com.microsoft.teams2/.../EBWebView/WV2Profile_tfw/` | **Teams account picker data** (IndexedDB, Session Storage, Cookies) |
+| `Containers/com.microsoft.teams2/.../MSTeams/app_settings.json` | **Teams active users list** |
 | `Containers/com.microsoft.*` | App sandboxed data |
-| `Group Containers/UBF8T346G9.*` | Shared Office data, **OneAuth identity cache** |
+| `Group Containers/UBF8T346G9.com.microsoft.oneauth/BlobStore/` | **OneAuth identity cache** (tenant/org metadata) |
+| `Group Containers/UBF8T346G9.*` | Shared Office data |
 | `Application Scripts/com.microsoft.*` | App scripts |
 | `Application Scripts/UBF8T346G9.*` | Office extension scripts |
 | `Preferences/com.microsoft.*` | User preferences |
@@ -242,6 +245,10 @@ Run the full removal with `--remove` flag, restart your Mac, then reinstall Offi
 
 This script is based on:
 - [Official Microsoft uninstall documentation](https://support.microsoft.com/en-us/office/uninstall-office-for-mac-eefa1199-5b58-43af-8a3d-b73dc1a8cae3)
+- [Clear the Teams client cache - Microsoft Learn](https://learn.microsoft.com/en-us/troubleshoot/microsoftteams/teams-administration/clear-teams-cache)
+- [Clearing Cache in "New" Teams for Mac - Microsoft Q&A](https://learn.microsoft.com/en-us/answers/questions/4423529/clearing-cache-in-new-teams-for-mac)
+- [How do I delete an obsolete Teams account on the MacOS App? - Microsoft Q&A](https://learn.microsoft.com/en-us/answers/questions/4421156/how-do-i-delete-an-obsolete-teams-account-on-the-m)
+- [Where has location of MS Teams cache gone on macOS - Microsoft Q&A](https://learn.microsoft.com/en-us/answers/questions/4440724/where-has-location-of-ms-teams-cache-gone-on-macos)
 - Community scripts and best practices
 - Paul Bowden's Office-Reset tool concepts
 
