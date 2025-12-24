@@ -17,13 +17,11 @@
 # - Comprehensive research from multiple sources
 #
 # Created: December 2025
-# Version: 1.0
+# Version: 1.1
 #
 # DISCLAIMER: Use at your own risk. Always backup important data first.
 #
 ################################################################################
-
-set -e
 
 # Colors for output
 RED='\033[0;31m'
@@ -38,8 +36,10 @@ NC='\033[0m' # No Color
 FOUND_COUNT=0
 REMOVED_COUNT=0
 
-# Mode flag
+# Mode flags
 AUDIT_ONLY=true
+FORCE_MODE=false
+SKIP_RESTART=false
 
 ################################################################################
 # Helper Functions
@@ -58,7 +58,7 @@ print_section() {
 
 print_found() {
     echo -e "  ${GREEN}✓${NC} Found: $1"
-    ((FOUND_COUNT++))
+    ((FOUND_COUNT++)) || true
 }
 
 print_not_found() {
@@ -67,7 +67,7 @@ print_not_found() {
 
 print_removed() {
     echo -e "  ${GREEN}✓${NC} Removed: $1"
-    ((REMOVED_COUNT++))
+    ((REMOVED_COUNT++)) || true
 }
 
 print_error() {
@@ -81,6 +81,38 @@ print_warning() {
 print_info() {
     echo -e "${BLUE}ℹ️  $1${NC}"
 }
+
+################################################################################
+# Sudo Handling
+################################################################################
+
+acquire_sudo() {
+    print_info "This script requires administrator privileges for some operations."
+    echo ""
+
+    # Request sudo upfront
+    if ! sudo -v; then
+        echo -e "${RED}Error: Failed to acquire sudo privileges.${NC}"
+        exit 1
+    fi
+
+    # Keep sudo alive in the background
+    (while true; do sudo -n true; sleep 50; kill -0 "$$" 2>/dev/null || exit; done) &
+    SUDO_KEEPER_PID=$!
+
+    echo -e "${GREEN}✓${NC} Administrator privileges acquired."
+    echo ""
+}
+
+cleanup_sudo() {
+    # Kill the sudo keeper process if it exists
+    if [[ -n "${SUDO_KEEPER_PID:-}" ]]; then
+        kill "$SUDO_KEEPER_PID" 2>/dev/null || true
+    fi
+}
+
+# Ensure cleanup on exit
+trap cleanup_sudo EXIT
 
 ################################################################################
 # Check/Remove Functions
@@ -99,58 +131,18 @@ check_path() {
     fi
 }
 
-check_path_pattern() {
-    local pattern="$1"
-    local description="$2"
-    local found=false
-
-    # Use find for patterns
-    while IFS= read -r -d '' file; do
-        if [[ -n "$file" ]]; then
-            if [[ "$found" == false ]]; then
-                print_found "$description"
-                found=true
-            fi
-            echo -e "     ${YELLOW}→ $file${NC}"
-            ((FOUND_COUNT++))
-        fi
-    done < <(find "$(dirname "$pattern")" -maxdepth 1 -name "$(basename "$pattern")" -print0 2>/dev/null)
-
-    if [[ "$found" == true ]]; then
-        ((FOUND_COUNT--))  # Adjust since we increment inside loop
-        return 0
-    fi
-    return 1
-}
-
 remove_path() {
     local path="$1"
     local description="$2"
-    local use_sudo="$3"
 
     if [[ -e "$path" ]]; then
-        if [[ "$use_sudo" == "sudo" ]]; then
-            if sudo rm -rf "$path" 2>/dev/null; then
-                print_removed "$description"
-                return 0
-            else
-                print_error "Could not remove $path"
-                return 1
-            fi
+        # Always try with sudo for reliability
+        if sudo rm -rf "$path" 2>/dev/null; then
+            print_removed "$description"
+            return 0
         else
-            if rm -rf "$path" 2>/dev/null; then
-                print_removed "$description"
-                return 0
-            else
-                # Try with sudo if regular removal fails
-                if sudo rm -rf "$path" 2>/dev/null; then
-                    print_removed "$description (required sudo)"
-                    return 0
-                else
-                    print_error "Could not remove $path"
-                    return 1
-                fi
-            fi
+            print_error "Could not remove $path"
+            return 1
         fi
     fi
     return 1
@@ -160,7 +152,6 @@ remove_path_pattern() {
     local base_dir="$1"
     local pattern="$2"
     local description="$3"
-    local use_sudo="$4"
 
     if [[ ! -d "$base_dir" ]]; then
         return 1
@@ -170,22 +161,10 @@ remove_path_pattern() {
     while IFS= read -r -d '' file; do
         if [[ -n "$file" ]]; then
             found=true
-            if [[ "$use_sudo" == "sudo" ]]; then
-                if sudo rm -rf "$file" 2>/dev/null; then
-                    print_removed "$(basename "$file")"
-                else
-                    print_error "Could not remove $file"
-                fi
+            if sudo rm -rf "$file" 2>/dev/null; then
+                print_removed "$(basename "$file")"
             else
-                if rm -rf "$file" 2>/dev/null; then
-                    print_removed "$(basename "$file")"
-                else
-                    if sudo rm -rf "$file" 2>/dev/null; then
-                        print_removed "$(basename "$file") (required sudo)"
-                    else
-                        print_error "Could not remove $file"
-                    fi
-                fi
+                print_error "Could not remove $file"
             fi
         fi
     done < <(find "$base_dir" -maxdepth 1 -name "$pattern" -print0 2>/dev/null)
@@ -194,8 +173,41 @@ remove_path_pattern() {
 }
 
 ################################################################################
-# Process Checking
+# Process Handling
 ################################################################################
+
+kill_microsoft_processes() {
+    print_section "Stopping Microsoft Processes"
+
+    local processes=(
+        "Microsoft Word"
+        "Microsoft Excel"
+        "Microsoft PowerPoint"
+        "Microsoft Outlook"
+        "Microsoft OneNote"
+        "Microsoft Teams"
+        "Teams"
+        "OneDrive"
+        "Microsoft AutoUpdate"
+        "Microsoft Update Assistant"
+    )
+
+    local killed=false
+    for proc in "${processes[@]}"; do
+        if pgrep -f "$proc" > /dev/null 2>&1; then
+            echo -e "  ${YELLOW}●${NC} Stopping: $proc"
+            pkill -9 -f "$proc" 2>/dev/null || true
+            killed=true
+        fi
+    done
+
+    if [[ "$killed" == true ]]; then
+        sleep 2
+        echo -e "  ${GREEN}✓${NC} Processes stopped"
+    else
+        echo -e "  ${GREEN}✓${NC} No Microsoft processes were running"
+    fi
+}
 
 check_running_processes() {
     print_section "Checking for Running Microsoft Processes"
@@ -220,37 +232,13 @@ check_running_processes() {
         fi
     done
 
-    if [[ "$running" == true ]]; then
-        echo ""
-        print_warning "Some Microsoft processes are running!"
-        print_warning "Please quit all Microsoft applications before proceeding."
-        echo ""
-
-        if [[ "$AUDIT_ONLY" == false ]]; then
-            read -p "Would you like to force quit all Microsoft processes? (y/N): " -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                echo "Force quitting Microsoft processes..."
-                pkill -f "Microsoft Word" 2>/dev/null || true
-                pkill -f "Microsoft Excel" 2>/dev/null || true
-                pkill -f "Microsoft PowerPoint" 2>/dev/null || true
-                pkill -f "Microsoft Outlook" 2>/dev/null || true
-                pkill -f "Microsoft OneNote" 2>/dev/null || true
-                pkill -f "Microsoft Teams" 2>/dev/null || true
-                pkill -f "OneDrive" 2>/dev/null || true
-                pkill -f "Microsoft AutoUpdate" 2>/dev/null || true
-                pkill -f "Microsoft Update" 2>/dev/null || true
-                sleep 2
-                echo -e "  ${GREEN}✓${NC} Processes terminated"
-            fi
-        fi
-    else
+    if [[ "$running" == false ]]; then
         echo -e "  ${GREEN}✓${NC} No Microsoft processes running"
     fi
 }
 
 ################################################################################
-# Application Checks
+# Application Removal
 ################################################################################
 
 check_applications() {
@@ -302,33 +290,13 @@ check_user_containers() {
 
     local containers_path="$HOME/Library/Containers"
 
-    local containers=(
-        "Microsoft Error Reporting"
-        "Microsoft Excel"
-        "Microsoft Outlook"
-        "Microsoft PowerPoint"
-        "Microsoft Word"
-        "Microsoft OneNote"
-        "com.microsoft.errorreporting"
-        "com.microsoft.Excel"
-        "com.microsoft.Outlook"
-        "com.microsoft.Powerpoint"
-        "com.microsoft.Word"
-        "com.microsoft.onenote.mac"
-        "com.microsoft.netlib.shipassertprocess"
-        "com.microsoft.Office365ServiceV2"
-        "com.microsoft.RMS-XPCService"
-        "com.microsoft.teams"
-        "com.microsoft.teams2"
-        "com.microsoft.OneDrive"
-        "com.microsoft.OneDrive-mac"
-        "com.microsoft.OneDriveLauncher"
-        "com.microsoft.OneDrive.FinderSync"
-    )
-
-    for container in "${containers[@]}"; do
-        check_path "$containers_path/$container" "$container" || true
-    done
+    if [[ -d "$containers_path" ]]; then
+        while IFS= read -r -d '' dir; do
+            if [[ -n "$dir" ]]; then
+                print_found "$(basename "$dir")"
+            fi
+        done < <(find "$containers_path" -maxdepth 1 \( -name "com.microsoft.*" -o -name "Microsoft *" \) -print0 2>/dev/null)
+    fi
 }
 
 remove_user_containers() {
@@ -336,37 +304,11 @@ remove_user_containers() {
 
     local containers_path="$HOME/Library/Containers"
 
-    # Remove specific containers
-    local containers=(
-        "Microsoft Error Reporting"
-        "Microsoft Excel"
-        "Microsoft Outlook"
-        "Microsoft PowerPoint"
-        "Microsoft Word"
-        "Microsoft OneNote"
-        "com.microsoft.errorreporting"
-        "com.microsoft.Excel"
-        "com.microsoft.Outlook"
-        "com.microsoft.Powerpoint"
-        "com.microsoft.Word"
-        "com.microsoft.onenote.mac"
-        "com.microsoft.netlib.shipassertprocess"
-        "com.microsoft.Office365ServiceV2"
-        "com.microsoft.RMS-XPCService"
-        "com.microsoft.teams"
-        "com.microsoft.teams2"
-        "com.microsoft.OneDrive"
-        "com.microsoft.OneDrive-mac"
-        "com.microsoft.OneDriveLauncher"
-        "com.microsoft.OneDrive.FinderSync"
-    )
+    # Remove all com.microsoft.* containers
+    remove_path_pattern "$containers_path" "com.microsoft.*" "Microsoft containers"
 
-    for container in "${containers[@]}"; do
-        remove_path "$containers_path/$container" "$container"
-    done
-
-    # Also catch any other com.microsoft.* containers
-    remove_path_pattern "$containers_path" "com.microsoft.*" "Additional Microsoft containers"
+    # Remove "Microsoft *" named containers
+    remove_path_pattern "$containers_path" "Microsoft *" "Microsoft containers"
 }
 
 ################################################################################
@@ -378,38 +320,20 @@ check_group_containers() {
 
     local group_path="$HOME/Library/Group Containers"
 
-    local containers=(
-        "UBF8T346G9.ms"
-        "UBF8T346G9.Office"
-        "UBF8T346G9.OfficeOsfWebHost"
-        "UBF8T346G9.OneDriveStandaloneSuite"
-        "UBF8T346G9.OneDriveSyncClientSuite"
-    )
-
-    for container in "${containers[@]}"; do
-        check_path "$group_path/$container" "$container" || true
-    done
+    if [[ -d "$group_path" ]]; then
+        while IFS= read -r -d '' dir; do
+            if [[ -n "$dir" ]]; then
+                print_found "$(basename "$dir")"
+            fi
+        done < <(find "$group_path" -maxdepth 1 -name "UBF8T346G9.*" -print0 2>/dev/null)
+    fi
 }
 
 remove_group_containers() {
     print_section "Removing Group Containers"
 
     local group_path="$HOME/Library/Group Containers"
-
-    local containers=(
-        "UBF8T346G9.ms"
-        "UBF8T346G9.Office"
-        "UBF8T346G9.OfficeOsfWebHost"
-        "UBF8T346G9.OneDriveStandaloneSuite"
-        "UBF8T346G9.OneDriveSyncClientSuite"
-    )
-
-    for container in "${containers[@]}"; do
-        remove_path "$group_path/$container" "$container"
-    done
-
-    # Catch any other UBF8T346G9.* containers
-    remove_path_pattern "$group_path" "UBF8T346G9.*" "Additional Office group containers"
+    remove_path_pattern "$group_path" "UBF8T346G9.*" "Office group containers"
 }
 
 ################################################################################
@@ -422,19 +346,11 @@ check_application_scripts() {
     local scripts_path="$HOME/Library/Application Scripts"
 
     if [[ -d "$scripts_path" ]]; then
-        local found=false
         while IFS= read -r -d '' dir; do
             if [[ -n "$dir" ]]; then
                 print_found "$(basename "$dir")"
-                echo -e "     ${YELLOW}→ $dir${NC}"
-                found=true
-                ((FOUND_COUNT++))
             fi
         done < <(find "$scripts_path" -maxdepth 1 -name "com.microsoft.*" -print0 2>/dev/null)
-
-        if [[ "$found" == true ]]; then
-            ((FOUND_COUNT--))  # Adjust count
-        fi
     fi
 }
 
@@ -455,16 +371,17 @@ check_user_preferences() {
     local prefs_path="$HOME/Library/Preferences"
 
     if [[ -d "$prefs_path" ]]; then
-        local found=false
+        local count=0
         while IFS= read -r -d '' file; do
             if [[ -n "$file" ]]; then
-                if [[ "$found" == false ]]; then
-                    found=true
-                fi
-                echo -e "  ${GREEN}✓${NC} Found: $(basename "$file")"
-                ((FOUND_COUNT++))
+                ((count++)) || true
             fi
         done < <(find "$prefs_path" -maxdepth 1 -name "com.microsoft.*" -print0 2>/dev/null)
+
+        if [[ $count -gt 0 ]]; then
+            echo -e "  ${GREEN}✓${NC} Found $count Microsoft preference files"
+            ((FOUND_COUNT+=count)) || true
+        fi
     fi
 }
 
@@ -481,16 +398,17 @@ check_system_preferences() {
     local prefs_path="/Library/Preferences"
 
     if [[ -d "$prefs_path" ]]; then
-        local found=false
+        local count=0
         while IFS= read -r -d '' file; do
             if [[ -n "$file" ]]; then
-                if [[ "$found" == false ]]; then
-                    found=true
-                fi
-                echo -e "  ${GREEN}✓${NC} Found: $(basename "$file")"
-                ((FOUND_COUNT++))
+                ((count++)) || true
             fi
         done < <(find "$prefs_path" -maxdepth 1 -name "com.microsoft.*" -print0 2>/dev/null)
+
+        if [[ $count -gt 0 ]]; then
+            echo -e "  ${GREEN}✓${NC} Found $count Microsoft system preference files"
+            ((FOUND_COUNT+=count)) || true
+        fi
     fi
 }
 
@@ -498,7 +416,7 @@ remove_system_preferences() {
     print_section "Removing System Preferences"
 
     local prefs_path="/Library/Preferences"
-    remove_path_pattern "$prefs_path" "com.microsoft.*" "Microsoft system preferences" "sudo"
+    remove_path_pattern "$prefs_path" "com.microsoft.*" "Microsoft system preferences"
 }
 
 ################################################################################
@@ -511,14 +429,9 @@ check_caches() {
     local cache_path="$HOME/Library/Caches"
 
     if [[ -d "$cache_path" ]]; then
-        local found=false
         while IFS= read -r -d '' dir; do
             if [[ -n "$dir" ]]; then
-                if [[ "$found" == false ]]; then
-                    found=true
-                fi
-                echo -e "  ${GREEN}✓${NC} Found: $(basename "$dir")"
-                ((FOUND_COUNT++))
+                print_found "$(basename "$dir")"
             fi
         done < <(find "$cache_path" -maxdepth 1 \( -name "com.microsoft.*" -o -name "Microsoft*" \) -print0 2>/dev/null)
     fi
@@ -545,7 +458,6 @@ check_application_support() {
         "Microsoft"
         "com.microsoft.teams"
         "OneDrive"
-        "Microsoft Edge"
     )
 
     for dir in "${dirs[@]}"; do
@@ -572,15 +484,13 @@ remove_application_support() {
 check_system_application_support() {
     print_section "System Application Support (/Library/Application Support)"
 
-    local support_path="/Library/Application Support"
-
-    check_path "$support_path/Microsoft" "Microsoft" || true
+    check_path "/Library/Application Support/Microsoft" "Microsoft" || true
 }
 
 remove_system_application_support() {
     print_section "Removing System Application Support"
 
-    remove_path "/Library/Application Support/Microsoft" "Microsoft" "sudo"
+    remove_path "/Library/Application Support/Microsoft" "Microsoft"
 }
 
 ################################################################################
@@ -593,19 +503,11 @@ check_launch_agents() {
     local agents_path="$HOME/Library/LaunchAgents"
 
     if [[ -d "$agents_path" ]]; then
-        local found=false
         while IFS= read -r -d '' file; do
             if [[ -n "$file" ]]; then
                 print_found "$(basename "$file")"
-                echo -e "     ${YELLOW}→ $file${NC}"
-                found=true
-                ((FOUND_COUNT++))
             fi
         done < <(find "$agents_path" -maxdepth 1 -name "com.microsoft.*" -print0 2>/dev/null)
-
-        if [[ "$found" == true ]]; then
-            ((FOUND_COUNT--))
-        fi
     fi
 }
 
@@ -632,19 +534,11 @@ check_system_launch_agents() {
     local agents_path="/Library/LaunchAgents"
 
     if [[ -d "$agents_path" ]]; then
-        local found=false
         while IFS= read -r -d '' file; do
             if [[ -n "$file" ]]; then
                 print_found "$(basename "$file")"
-                echo -e "     ${YELLOW}→ $file${NC}"
-                found=true
-                ((FOUND_COUNT++))
             fi
         done < <(find "$agents_path" -maxdepth 1 -name "com.microsoft.*" -print0 2>/dev/null)
-
-        if [[ "$found" == true ]]; then
-            ((FOUND_COUNT--))
-        fi
     fi
 }
 
@@ -662,7 +556,7 @@ remove_system_launch_agents() {
         done < <(find "$agents_path" -maxdepth 1 -name "com.microsoft.*" -print0 2>/dev/null)
     fi
 
-    remove_path_pattern "$agents_path" "com.microsoft.*" "Microsoft system launch agents" "sudo"
+    remove_path_pattern "$agents_path" "com.microsoft.*" "Microsoft system launch agents"
 }
 
 check_launch_daemons() {
@@ -671,19 +565,11 @@ check_launch_daemons() {
     local daemons_path="/Library/LaunchDaemons"
 
     if [[ -d "$daemons_path" ]]; then
-        local found=false
         while IFS= read -r -d '' file; do
             if [[ -n "$file" ]]; then
                 print_found "$(basename "$file")"
-                echo -e "     ${YELLOW}→ $file${NC}"
-                found=true
-                ((FOUND_COUNT++))
             fi
         done < <(find "$daemons_path" -maxdepth 1 -name "com.microsoft.*" -print0 2>/dev/null)
-
-        if [[ "$found" == true ]]; then
-            ((FOUND_COUNT--))
-        fi
     fi
 }
 
@@ -701,7 +587,7 @@ remove_launch_daemons() {
         done < <(find "$daemons_path" -maxdepth 1 -name "com.microsoft.*" -print0 2>/dev/null)
     fi
 
-    remove_path_pattern "$daemons_path" "com.microsoft.*" "Microsoft launch daemons" "sudo"
+    remove_path_pattern "$daemons_path" "com.microsoft.*" "Microsoft launch daemons"
 }
 
 ################################################################################
@@ -714,19 +600,11 @@ check_privileged_helpers() {
     local helpers_path="/Library/PrivilegedHelperTools"
 
     if [[ -d "$helpers_path" ]]; then
-        local found=false
         while IFS= read -r -d '' file; do
             if [[ -n "$file" ]]; then
                 print_found "$(basename "$file")"
-                echo -e "     ${YELLOW}→ $file${NC}"
-                found=true
-                ((FOUND_COUNT++))
             fi
         done < <(find "$helpers_path" -maxdepth 1 -name "com.microsoft.*" -print0 2>/dev/null)
-
-        if [[ "$found" == true ]]; then
-            ((FOUND_COUNT--))
-        fi
     fi
 }
 
@@ -734,7 +612,7 @@ remove_privileged_helpers() {
     print_section "Removing Privileged Helper Tools"
 
     local helpers_path="/Library/PrivilegedHelperTools"
-    remove_path_pattern "$helpers_path" "com.microsoft.*" "Microsoft helper tools" "sudo"
+    remove_path_pattern "$helpers_path" "com.microsoft.*" "Microsoft helper tools"
 }
 
 ################################################################################
@@ -750,7 +628,7 @@ check_fonts() {
 remove_fonts() {
     print_section "Removing Microsoft Fonts"
 
-    remove_path "/Library/Fonts/Microsoft" "Microsoft Fonts folder" "sudo"
+    remove_path "/Library/Fonts/Microsoft" "Microsoft Fonts folder"
 }
 
 ################################################################################
@@ -760,13 +638,14 @@ remove_fonts() {
 check_receipts() {
     print_section "Package Receipts (pkgutil)"
 
-    local packages=$(pkgutil --pkgs 2>/dev/null | grep -i "com.microsoft" || true)
+    local packages
+    packages=$(pkgutil --pkgs 2>/dev/null | grep -i "com.microsoft" || true)
 
     if [[ -n "$packages" ]]; then
-        echo "$packages" | while read -r pkg; do
-            echo -e "  ${GREEN}✓${NC} Found package: $pkg"
-            ((FOUND_COUNT++))
-        done
+        local count
+        count=$(echo "$packages" | wc -l | tr -d ' ')
+        echo -e "  ${GREEN}✓${NC} Found $count Microsoft package receipts"
+        ((FOUND_COUNT+=count)) || true
     else
         echo -e "  ${YELLOW}○${NC} No Microsoft package receipts found"
     fi
@@ -775,16 +654,21 @@ check_receipts() {
 remove_receipts() {
     print_section "Forgetting Package Receipts"
 
-    local packages=$(pkgutil --pkgs 2>/dev/null | grep -i "com.microsoft" || true)
+    local packages
+    packages=$(pkgutil --pkgs 2>/dev/null | grep -i "com.microsoft" || true)
 
     if [[ -n "$packages" ]]; then
-        echo "$packages" | while read -r pkg; do
-            if sudo pkgutil --forget "$pkg" 2>/dev/null; then
-                print_removed "Forgot package: $pkg"
-            else
-                print_error "Could not forget package: $pkg"
+        while IFS= read -r pkg; do
+            if [[ -n "$pkg" ]]; then
+                if sudo pkgutil --forget "$pkg" >/dev/null 2>&1; then
+                    print_removed "Forgot: $pkg"
+                else
+                    print_error "Could not forget: $pkg"
+                fi
             fi
-        done
+        done <<< "$packages"
+    else
+        echo -e "  ${YELLOW}○${NC} No package receipts to forget"
     fi
 }
 
@@ -795,15 +679,13 @@ remove_receipts() {
 check_keychain() {
     print_section "Keychain Entries"
 
-    print_info "Keychain entries cannot be listed programmatically without user interaction."
-    print_info "You may want to manually check Keychain Access for entries containing:"
+    print_info "Keychain entries should be checked manually."
+    print_info "Open Keychain Access → Search for 'Microsoft' or 'Teams'"
     echo -e "     - Microsoft"
     echo -e "     - Office"
     echo -e "     - Teams"
     echo -e "     - OneDrive"
     echo -e "     - Outlook"
-    echo ""
-    print_info "To check: Open Keychain Access → Search for 'Microsoft' or 'Teams'"
 }
 
 ################################################################################
@@ -813,13 +695,11 @@ check_keychain() {
 check_login_items() {
     print_section "Login Items (System Settings)"
 
-    print_info "Login Items must be checked manually in System Settings."
+    print_info "Login Items should be checked manually."
     print_info "Go to: System Settings → General → Login Items"
-    print_info "Look for and remove:"
     echo -e "     - Microsoft AutoUpdate"
     echo -e "     - Microsoft Teams"
     echo -e "     - OneDrive"
-    echo -e "     - Any other Microsoft items"
 }
 
 ################################################################################
@@ -833,8 +713,11 @@ show_audit_summary() {
     if [[ $FOUND_COUNT -gt 0 ]]; then
         echo -e "${YELLOW}Found $FOUND_COUNT Microsoft items on this system.${NC}"
         echo ""
-        print_info "To remove all items, run this script with --remove flag:"
-        echo -e "     ${BOLD}./ms-office-cleanup.sh --remove${NC}"
+        print_info "To remove all items, run:"
+        echo -e "     ${BOLD}sudo ./ms-office-cleanup.sh --remove${NC}"
+        echo ""
+        print_info "To skip confirmations, add --force:"
+        echo -e "     ${BOLD}sudo ./ms-office-cleanup.sh --remove --force${NC}"
     else
         echo -e "${GREEN}No Microsoft Office items found on this system!${NC}"
         echo -e "${GREEN}Your Mac appears to be clean of Microsoft software.${NC}"
@@ -846,12 +729,12 @@ show_removal_summary() {
     echo ""
     print_header "REMOVAL SUMMARY"
 
-    echo -e "${GREEN}Removed $REMOVED_COUNT Microsoft items.${NC}"
+    echo -e "${GREEN}Successfully removed $REMOVED_COUNT Microsoft items.${NC}"
     echo ""
-    print_info "Recommended next steps:"
-    echo "  1. Check Login Items in System Settings → General → Login Items"
-    echo "  2. Check Keychain Access for any remaining Microsoft entries"
-    echo "  3. Remove any Microsoft apps from your Dock"
+    print_info "Manual steps remaining:"
+    echo "  1. Check Login Items: System Settings → General → Login Items"
+    echo "  2. Check Keychain Access: Search for 'Microsoft' and delete entries"
+    echo "  3. Remove Microsoft apps from your Dock (right-click → Remove from Dock)"
     echo "  4. Empty your Trash"
     echo "  5. Restart your Mac"
     echo ""
@@ -863,7 +746,7 @@ show_removal_summary() {
 
 run_audit() {
     print_header "MICROSOFT OFFICE CLEANUP AUDIT"
-    echo "This will scan your system for Microsoft Office components."
+    echo "Scanning your system for Microsoft Office components..."
     echo "No files will be modified or deleted."
     echo ""
 
@@ -892,7 +775,7 @@ run_audit() {
 run_removal() {
     print_header "MICROSOFT OFFICE COMPLETE REMOVAL"
 
-    echo -e "${BOLD}This will permanently remove ALL Microsoft Office components including:${NC}"
+    echo -e "${BOLD}This will permanently remove ALL Microsoft Office components:${NC}"
     echo "  • Microsoft Office apps (Word, Excel, PowerPoint, Outlook, OneNote)"
     echo "  • Microsoft Teams"
     echo "  • Microsoft OneDrive"
@@ -907,19 +790,27 @@ run_removal() {
     print_warning "• This action cannot be undone!"
     echo ""
 
-    read -p "Are you sure you want to proceed? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Removal cancelled."
-        exit 0
+    if [[ "$FORCE_MODE" == false ]]; then
+        read -p "Are you sure you want to proceed? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Removal cancelled."
+            exit 0
+        fi
+
+        echo ""
+        print_warning "Starting in 3 seconds... Press Ctrl+C to cancel."
+        sleep 3
+        echo ""
     fi
 
-    echo ""
-    print_warning "Last chance! Press Ctrl+C within 5 seconds to cancel..."
-    sleep 5
-    echo ""
+    # Acquire sudo privileges upfront
+    acquire_sudo
 
-    check_running_processes
+    # Kill running processes
+    kill_microsoft_processes
+
+    # Remove everything
     remove_applications
     remove_user_containers
     remove_group_containers
@@ -936,19 +827,24 @@ run_removal() {
     remove_fonts
     remove_receipts
 
+    # Show manual steps
     check_keychain
     check_login_items
 
     show_removal_summary
 
-    read -p "Would you like to restart your Mac now? (y/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        echo "Restarting in 10 seconds... Press Ctrl+C to cancel."
-        sleep 10
-        sudo shutdown -r now
+    if [[ "$SKIP_RESTART" == false && "$FORCE_MODE" == false ]]; then
+        read -p "Would you like to restart your Mac now? (y/N): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            echo "Restarting in 5 seconds... Press Ctrl+C to cancel."
+            sleep 5
+            sudo shutdown -r now
+        else
+            print_info "Please restart your Mac manually to complete the cleanup."
+        fi
     else
-        print_info "Please restart your Mac manually to complete the cleanup."
+        print_info "Please restart your Mac to complete the cleanup."
     fi
 }
 
@@ -959,16 +855,19 @@ show_help() {
     echo "Usage: $0 [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  --audit    Scan and show all Microsoft items (default, no changes made)"
-    echo "  --remove   Remove all Microsoft Office components"
-    echo "  --help     Show this help message"
+    echo "  --audit         Scan and show all Microsoft items (default)"
+    echo "  --remove        Remove all Microsoft Office components"
+    echo "  --force, -f     Skip confirmation prompts (use with --remove)"
+    echo "  --no-restart    Don't prompt to restart (use with --remove)"
+    echo "  --help, -h      Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0              # Run audit (same as --audit)"
-    echo "  $0 --audit      # Scan system for Microsoft items"
-    echo "  $0 --remove     # Remove all Microsoft items"
+    echo "  $0                          # Run audit (safe, no changes)"
+    echo "  $0 --audit                  # Same as above"
+    echo "  sudo $0 --remove            # Remove with confirmation prompts"
+    echo "  sudo $0 --remove --force    # Remove without prompts"
     echo ""
-    echo "It's recommended to run --audit first to see what will be removed."
+    echo "Note: The --remove option requires sudo for full cleanup."
     echo ""
 }
 
@@ -977,13 +876,6 @@ show_help() {
 ################################################################################
 
 main() {
-    # Check if running as root (we don't want that)
-    if [[ $EUID -eq 0 ]]; then
-        echo -e "${RED}Error: Do not run this script as root or with sudo.${NC}"
-        echo "The script will request sudo access when needed."
-        exit 1
-    fi
-
     # Check if on macOS
     if [[ "$(uname)" != "Darwin" ]]; then
         echo -e "${RED}Error: This script is designed for macOS only.${NC}"
@@ -991,22 +883,46 @@ main() {
     fi
 
     # Parse arguments
-    case "${1:-}" in
-        --remove)
-            AUDIT_ONLY=false
+    local mode="audit"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --remove)
+                mode="remove"
+                AUDIT_ONLY=false
+                shift
+                ;;
+            --force|-f)
+                FORCE_MODE=true
+                shift
+                ;;
+            --no-restart)
+                SKIP_RESTART=true
+                shift
+                ;;
+            --audit)
+                mode="audit"
+                shift
+                ;;
+            --help|-h)
+                show_help
+                exit 0
+                ;;
+            *)
+                echo -e "${RED}Unknown option: $1${NC}"
+                show_help
+                exit 1
+                ;;
+        esac
+    done
+
+    # Run the appropriate mode
+    case "$mode" in
+        remove)
             run_removal
             ;;
-        --audit|"")
-            AUDIT_ONLY=true
+        audit|*)
             run_audit
-            ;;
-        --help|-h)
-            show_help
-            ;;
-        *)
-            echo -e "${RED}Unknown option: $1${NC}"
-            show_help
-            exit 1
             ;;
     esac
 }

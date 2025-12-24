@@ -62,7 +62,15 @@ Once you've reviewed the audit, run the removal:
 ./ms-office-cleanup.sh --remove
 ```
 
-**Note:** You'll be prompted for confirmation and may need to enter your admin password.
+You'll be prompted for your admin password and confirmation.
+
+### 4. Fully automated removal (no prompts)
+
+For scripted/automated deployments:
+
+```bash
+./ms-office-cleanup.sh --remove --force --no-restart
+```
 
 ## What the Script Does
 
@@ -75,8 +83,9 @@ Once you've reviewed the audit, run the removal:
 - **Does NOT delete anything**
 
 ### Removal Mode (--remove)
-- Prompts for confirmation (with 5-second cancel window)
-- Force quits any running Microsoft processes (optional)
+- Acquires sudo privileges upfront (asks for password once)
+- Prompts for confirmation (unless --force is used)
+- Force quits all running Microsoft processes automatically
 - Removes all Microsoft applications from /Applications
 - Deletes user library containers and group containers
 - Removes application scripts, preferences, and caches
