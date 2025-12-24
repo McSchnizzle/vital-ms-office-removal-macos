@@ -28,7 +28,7 @@ This script finds and removes ALL of these locations.
 
 ```bash
 # Download directly
-curl -O https://raw.githubusercontent.com/YOUR_USERNAME/msoffice-mac-cleanup/main/ms-office-cleanup.sh
+curl -O https://raw.githubusercontent.com/McSchnizzle/vital-ms-office-removal-macos/main/ms-office-cleanup.sh
 
 # Make it executable
 chmod +x ms-office-cleanup.sh
@@ -36,8 +36,8 @@ chmod +x ms-office-cleanup.sh
 
 Or clone the repository:
 ```bash
-git clone https://github.com/YOUR_USERNAME/msoffice-mac-cleanup.git
-cd msoffice-mac-cleanup
+git clone https://github.com/McSchnizzle/vital-ms-office-removal-macos.git
+cd vital-ms-office-removal-macos
 ```
 
 ### 2. Run an audit first (recommended)
