@@ -17,7 +17,7 @@
 # - Comprehensive research from multiple sources
 #
 # Created: December 2025
-# Version: 1.9
+# Version: 1.10
 #
 # DISCLAIMER: Use at your own risk. Always backup important data first.
 #
@@ -756,28 +756,16 @@ check_identity_cache() {
         print_found "OneAuth Library data"
     fi
 
-    # Teams2 EBWebView WV2Profile_tfw (stores cached accounts in embedded browser - PRIMARY location!)
-    local teams2_wv2="$HOME/Library/Containers/com.microsoft.teams2/Data/Library/Application Support/Microsoft/MSTeams/EBWebView/WV2Profile_tfw"
-    if [[ -d "$teams2_wv2/IndexedDB" ]] && [[ -n "$(ls -A "$teams2_wv2/IndexedDB" 2>/dev/null)" ]]; then
-        print_found "Teams2 WV2Profile IndexedDB (account picker data)"
+    # Teams2 EBWebView profiles (stores cached accounts in embedded browser)
+    local teams2_ebwebview="$HOME/Library/Containers/com.microsoft.teams2/Data/Library/Application Support/Microsoft/MSTeams/EBWebView"
+    if [[ -d "$teams2_ebwebview/WV2Profile_tfw" ]]; then
+        print_found "Teams2 WV2Profile_tfw (account picker profile)"
     fi
-    if [[ -d "$teams2_wv2/Session Storage" ]] && [[ -n "$(ls -A "$teams2_wv2/Session Storage" 2>/dev/null)" ]]; then
-        print_found "Teams2 WV2Profile Session Storage"
+    if [[ -d "$teams2_ebwebview/Default" ]]; then
+        print_found "Teams2 EBWebView Default profile"
     fi
-    if [[ -d "$teams2_wv2/Local Storage/leveldb" ]] && [[ -n "$(ls -A "$teams2_wv2/Local Storage/leveldb" 2>/dev/null)" ]]; then
-        print_found "Teams2 WV2Profile Local Storage"
-    fi
-    if [[ -f "$teams2_wv2/Cookies" ]]; then
-        print_found "Teams2 WV2Profile Cookies"
-    fi
-
-    # Teams2 EBWebView Default profile (secondary)
-    local teams2_ebwebview="$HOME/Library/Containers/com.microsoft.teams2/Data/Library/Application Support/Microsoft/MSTeams/EBWebView/Default"
-    if [[ -d "$teams2_ebwebview/Local Storage/leveldb" ]] && [[ -n "$(ls -A "$teams2_ebwebview/Local Storage/leveldb" 2>/dev/null)" ]]; then
-        print_found "Teams2 EBWebView Default Local Storage"
-    fi
-    if [[ -f "$teams2_ebwebview/Cookies" ]]; then
-        print_found "Teams2 EBWebView Default Cookies"
+    if [[ -f "$teams2_ebwebview/Local State" ]]; then
+        print_found "Teams2 EBWebView Local State (profile metadata)"
     fi
 
     # Teams2 container caches
@@ -838,66 +826,31 @@ remove_identity_cache() {
         fi
     fi
 
-    # Teams2 EBWebView WV2Profile_tfw (PRIMARY location for account picker data)
-    local teams2_wv2="$HOME/Library/Containers/com.microsoft.teams2/Data/Library/Application Support/Microsoft/MSTeams/EBWebView/WV2Profile_tfw"
+    # Teams2 EBWebView profiles (CRITICAL: Delete entire profile folders, not just contents)
+    # The WV2Profile_tfw and Default folders contain browser state that caches account picker data
+    # Deleting contents is not enough - the browser profile must be completely removed
+    local teams2_ebwebview="$HOME/Library/Containers/com.microsoft.teams2/Data/Library/Application Support/Microsoft/MSTeams/EBWebView"
 
-    # Remove IndexedDB (contains account picker data!)
-    if [[ -d "$teams2_wv2/IndexedDB" ]]; then
-        rm -rf "$teams2_wv2/IndexedDB"/* 2>/dev/null
-        if [[ -z "$(ls -A "$teams2_wv2/IndexedDB" 2>/dev/null)" ]]; then
-            print_removed "Teams2 WV2Profile IndexedDB (account picker)"
+    # Delete WV2Profile_tfw (PRIMARY location for account picker data)
+    if [[ -d "$teams2_ebwebview/WV2Profile_tfw" ]]; then
+        rm -rf "$teams2_ebwebview/WV2Profile_tfw" 2>/dev/null
+        if [[ ! -d "$teams2_ebwebview/WV2Profile_tfw" ]]; then
+            print_removed "Teams2 WV2Profile_tfw (account picker profile)"
         fi
     fi
 
-    # Remove Session Storage
-    if [[ -d "$teams2_wv2/Session Storage" ]]; then
-        rm -rf "$teams2_wv2/Session Storage"/* 2>/dev/null
-        if [[ -z "$(ls -A "$teams2_wv2/Session Storage" 2>/dev/null)" ]]; then
-            print_removed "Teams2 WV2Profile Session Storage"
+    # Delete Default profile (secondary)
+    if [[ -d "$teams2_ebwebview/Default" ]]; then
+        rm -rf "$teams2_ebwebview/Default" 2>/dev/null
+        if [[ ! -d "$teams2_ebwebview/Default" ]]; then
+            print_removed "Teams2 EBWebView Default profile"
         fi
     fi
 
-    # Remove Local Storage
-    if [[ -d "$teams2_wv2/Local Storage/leveldb" ]]; then
-        rm -rf "$teams2_wv2/Local Storage/leveldb"/* 2>/dev/null
-        if [[ -z "$(ls -A "$teams2_wv2/Local Storage/leveldb" 2>/dev/null)" ]]; then
-            print_removed "Teams2 WV2Profile Local Storage"
-        fi
-    fi
-
-    # Remove Cookies
-    if [[ -f "$teams2_wv2/Cookies" ]]; then
-        rm -f "$teams2_wv2/Cookies"* 2>/dev/null
-        print_removed "Teams2 WV2Profile Cookies"
-    fi
-
-    # Remove Service Worker cache
-    if [[ -d "$teams2_wv2/Service Worker" ]]; then
-        rm -rf "$teams2_wv2/Service Worker"/* 2>/dev/null
-        if [[ -z "$(ls -A "$teams2_wv2/Service Worker" 2>/dev/null)" ]]; then
-            print_removed "Teams2 WV2Profile Service Worker"
-        fi
-    fi
-
-    # Remove File System cache
-    if [[ -d "$teams2_wv2/File System" ]]; then
-        rm -rf "$teams2_wv2/File System"/* 2>/dev/null
-        if [[ -z "$(ls -A "$teams2_wv2/File System" 2>/dev/null)" ]]; then
-            print_removed "Teams2 WV2Profile File System cache"
-        fi
-    fi
-
-    # Teams2 EBWebView Default profile (secondary)
-    local teams2_ebwebview="$HOME/Library/Containers/com.microsoft.teams2/Data/Library/Application Support/Microsoft/MSTeams/EBWebView/Default"
-    if [[ -d "$teams2_ebwebview/Local Storage/leveldb" ]]; then
-        rm -rf "$teams2_ebwebview/Local Storage/leveldb"/* 2>/dev/null
-        if [[ -z "$(ls -A "$teams2_ebwebview/Local Storage/leveldb" 2>/dev/null)" ]]; then
-            print_removed "Teams2 EBWebView Default Local Storage"
-        fi
-    fi
-    if [[ -f "$teams2_ebwebview/Cookies" ]]; then
-        rm -f "$teams2_ebwebview/Cookies"* 2>/dev/null
-        print_removed "Teams2 EBWebView Default Cookies"
+    # Delete Local State file (contains profile metadata and account references)
+    if [[ -f "$teams2_ebwebview/Local State" ]]; then
+        rm -f "$teams2_ebwebview/Local State" 2>/dev/null
+        print_removed "Teams2 EBWebView Local State"
     fi
 
     # Teams2 container caches
