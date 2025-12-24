@@ -139,7 +139,9 @@ For scripted/automated deployments:
 - All `com.microsoft.*` packages registered with macOS
 
 ### Keychain Entries (automatically removed)
-The script automatically detects and removes these keychain entries:
+The script automatically detects and removes ALL Microsoft keychain entries, including:
+
+**Known entries by name:**
 - `Microsoft Teams Safe Storage` - Teams credentials
 - `OneAuthAccount` - Azure AD / Entra ID tokens (can have multiple entries)
 - `Microsoft Office Identities Cache 3` - Office cached identities
@@ -148,6 +150,12 @@ The script automatically detects and removes these keychain entries:
 - `com.microsoft.onedrive.cookies` - OneDrive session cookies
 - `com.microsoft.OneDrive.FinderSync.HockeySDK` - OneDrive telemetry
 - `MicrosoftOfficeIdentityCache` - Office license cache
+- `Microsoft Office Data` - Office license data
+
+**Dynamically discovered entries:**
+- `com.microsoft.oneauth.*` - UUID-labeled entries containing full account/tenant data
+- All `com.microsoft.*` labeled entries (comprehensive pattern match)
+- Any keychain entry containing "Microsoft" in label, service, or account name
 
 ## Manual Steps Required
 
@@ -164,10 +172,12 @@ Most cleanup is now fully automated. Only a few items require manual action:
 - Select **Options** → **Remove from Dock**
 
 ### 3. Additional Keychain Entries (if any remain)
-The script automatically removes known Microsoft keychain entries. If you still see any after running the script:
+The script now performs a comprehensive keychain sweep, removing ALL entries containing "Microsoft" or "com.microsoft". This includes dynamically discovering hidden entries with UUID-based labels. If you still see any after running the script:
 1. Open **Keychain Access** (Spotlight: `Cmd+Space`, type "Keychain")
-2. Search for: `Microsoft`, `Office`, `Teams`, `OneDrive`, `Outlook`
+2. Search for: `Microsoft`, `Office`, `Teams`, `OneDrive`, `Outlook`, `oneauth`
 3. Delete any entries found
+
+**Note:** If entries keep reappearing, check if **iCloud Keychain** is syncing them from another device. Go to System Settings → Apple ID → iCloud → Passwords & Keychain.
 
 ## Important Warnings
 
@@ -226,7 +236,7 @@ If you're getting login errors after your organization changed Microsoft 365 ten
 
 Run the full removal with `--remove` flag, restart your Mac, then reinstall Office. The apps will properly discover your new tenant on first login.
 
-**Important:** If you still see old accounts in the Teams login picker after cleanup, try clicking **"Create or use another account"** instead of selecting a cached account. This forces fresh tenant discovery. If accounts keep reappearing, check if **iCloud Keychain** is syncing them from another device.
+**Important:** If accounts keep reappearing after cleanup, check if **iCloud Keychain** is syncing them from another device. Go to System Settings → Apple ID → iCloud → Passwords & Keychain and temporarily disable sync, then run the cleanup again.
 
 ## Based On
 

@@ -17,7 +17,7 @@
 # - Comprehensive research from multiple sources
 #
 # Created: December 2025
-# Version: 1.5
+# Version: 1.7
 #
 # DISCLAIMER: Use at your own risk. Always backup important data first.
 #
@@ -756,6 +756,21 @@ check_identity_cache() {
         print_found "OneAuth Library data"
     fi
 
+    # Teams2 EBWebView (stores cached accounts in embedded browser)
+    local teams2_ebwebview="$HOME/Library/Containers/com.microsoft.teams2/Data/Library/Application Support/Microsoft/MSTeams/EBWebView/Default"
+    if [[ -d "$teams2_ebwebview/Local Storage/leveldb" ]] && [[ -n "$(ls -A "$teams2_ebwebview/Local Storage/leveldb" 2>/dev/null)" ]]; then
+        print_found "Teams2 EBWebView Local Storage"
+    fi
+    if [[ -f "$teams2_ebwebview/Cookies" ]]; then
+        print_found "Teams2 EBWebView Cookies"
+    fi
+
+    # Teams2 container caches
+    local teams2_caches="$HOME/Library/Containers/com.microsoft.teams2/Data/Library/Caches"
+    if [[ -d "$teams2_caches" ]] && [[ -n "$(ls -A "$teams2_caches" 2>/dev/null)" ]]; then
+        print_found "Teams2 container caches"
+    fi
+
     # OneAuth folder in Application Support (secondary location)
     local oneauth_path="$HOME/Library/Application Support/Microsoft/OneAuth"
     if [[ -d "$oneauth_path" ]]; then
@@ -796,6 +811,28 @@ remove_identity_cache() {
         rm -rf "$oneauth_gc/Library"/* 2>/dev/null
         if [[ -z "$(ls -A "$oneauth_gc/Library" 2>/dev/null)" ]]; then
             print_removed "OneAuth Library contents"
+        fi
+    fi
+
+    # Teams2 EBWebView (embedded browser caches account data)
+    local teams2_ebwebview="$HOME/Library/Containers/com.microsoft.teams2/Data/Library/Application Support/Microsoft/MSTeams/EBWebView/Default"
+    if [[ -d "$teams2_ebwebview/Local Storage/leveldb" ]]; then
+        rm -rf "$teams2_ebwebview/Local Storage/leveldb"/* 2>/dev/null
+        if [[ -z "$(ls -A "$teams2_ebwebview/Local Storage/leveldb" 2>/dev/null)" ]]; then
+            print_removed "Teams2 EBWebView Local Storage"
+        fi
+    fi
+    if [[ -f "$teams2_ebwebview/Cookies" ]]; then
+        rm -f "$teams2_ebwebview/Cookies"* 2>/dev/null
+        print_removed "Teams2 EBWebView Cookies"
+    fi
+
+    # Teams2 container caches
+    local teams2_caches="$HOME/Library/Containers/com.microsoft.teams2/Data/Library/Caches"
+    if [[ -d "$teams2_caches" ]]; then
+        rm -rf "$teams2_caches"/* 2>/dev/null
+        if [[ -z "$(ls -A "$teams2_caches" 2>/dev/null)" ]]; then
+            print_removed "Teams2 container caches"
         fi
     fi
 
@@ -864,6 +901,31 @@ check_keychain() {
         found_keychain=true
     fi
 
+    # Check for ALL com.microsoft.* labeled entries (includes oneauth, teams, office, etc.)
+    # These entries can contain account data, tenant info, tokens, etc.
+    local microsoft_labels
+    microsoft_labels=$(security dump-keychain 2>/dev/null | grep -o '"com\.microsoft\.[^"]*"' | tr -d '"' | sort -u)
+    if [[ -n "$microsoft_labels" ]]; then
+        local ms_count
+        ms_count=$(echo "$microsoft_labels" | wc -l | tr -d ' ')
+        print_found "com.microsoft.* labeled entries ($ms_count total)"
+        found_keychain=true
+    fi
+
+    # Check for Microsoft Office Data (uses creator flag)
+    if security find-generic-password -G "Microsoft Office Data" >/dev/null 2>&1; then
+        print_found "Microsoft Office Data"
+        found_keychain=true
+    fi
+
+    # Check for any other Microsoft-related entries by dumping keychain
+    local other_microsoft
+    other_microsoft=$(security dump-keychain 2>/dev/null | grep -i '".*microsoft.*"' | grep -v 'com\.microsoft\.' | sort -u | head -5)
+    if [[ -n "$other_microsoft" ]]; then
+        print_found "Additional Microsoft-related entries"
+        found_keychain=true
+    fi
+
     if [[ "$found_keychain" == false ]]; then
         echo -e "  ${YELLOW}○${NC} No Microsoft keychain entries found"
     fi
@@ -879,14 +941,34 @@ remove_keychain_entries() {
         print_removed "Microsoft Teams Safe Storage"
     fi
 
-    # Delete all OneAuthAccount entries (there can be multiple - loop until all gone)
+    # Delete all OneAuthAccount entries by service name (there can be multiple - loop until all gone)
     local deleted_oneauth=0
     while security delete-generic-password -s "OneAuthAccount" >/dev/null 2>&1; do
         ((deleted_oneauth++)) || true
     done
     if [[ $deleted_oneauth -gt 0 ]]; then
-        print_removed "OneAuthAccount entries ($deleted_oneauth)"
+        print_removed "OneAuthAccount entries by service ($deleted_oneauth)"
         ((REMOVED_COUNT+=deleted_oneauth-1)) || true  # Already counted one
+    fi
+
+    # Delete ALL com.microsoft.* labeled entries (CRITICAL for complete cleanup)
+    # This includes oneauth, teams, office, etc. - all entries with com.microsoft. prefix
+    # These entries can contain cached account/tenant data that causes issues after tenant migration
+    local deleted_ms_labeled=0
+    local microsoft_labels
+    microsoft_labels=$(security dump-keychain 2>/dev/null | grep -o '"com\.microsoft\.[^"]*"' | tr -d '"' | sort -u)
+    if [[ -n "$microsoft_labels" ]]; then
+        while IFS= read -r label; do
+            if [[ -n "$label" ]]; then
+                if security delete-generic-password -l "$label" >/dev/null 2>&1; then
+                    ((deleted_ms_labeled++)) || true
+                fi
+            fi
+        done <<< "$microsoft_labels"
+    fi
+    if [[ $deleted_ms_labeled -gt 0 ]]; then
+        print_removed "com.microsoft.* labeled entries ($deleted_ms_labeled)"
+        ((REMOVED_COUNT+=deleted_ms_labeled)) || true
     fi
 
     # Delete adalcache
@@ -919,6 +1001,42 @@ remove_keychain_entries() {
     # Delete Microsoft Office Identities Settings 3
     if security delete-generic-password -a "Microsoft Office Identities Settings 3" >/dev/null 2>&1; then
         print_removed "Microsoft Office Identities Settings 3"
+    fi
+
+    # Delete Microsoft Office Data entries (uses creator flag -G)
+    local deleted_office_data=0
+    while security delete-generic-password -G "Microsoft Office Data" >/dev/null 2>&1; do
+        ((deleted_office_data++)) || true
+    done
+    if [[ $deleted_office_data -gt 0 ]]; then
+        print_removed "Microsoft Office Data entries ($deleted_office_data)"
+        ((REMOVED_COUNT+=deleted_office_data)) || true
+    fi
+
+    # Final comprehensive sweep: delete any remaining entries with "Microsoft" in label
+    # This catches entries like "Microsoft Teams Safe Storage" that might have been missed
+    local deleted_ms_sweep=0
+    local microsoft_sweep
+    microsoft_sweep=$(security dump-keychain 2>/dev/null | grep -i '"[^"]*microsoft[^"]*"' | grep -o '"[^"]*"' | tr -d '"' | sort -u)
+    if [[ -n "$microsoft_sweep" ]]; then
+        while IFS= read -r entry; do
+            if [[ -n "$entry" ]] && [[ "$entry" == *[Mm]icrosoft* ]]; then
+                # Try deleting by label first
+                if security delete-generic-password -l "$entry" >/dev/null 2>&1; then
+                    ((deleted_ms_sweep++)) || true
+                # Then try by service name
+                elif security delete-generic-password -s "$entry" >/dev/null 2>&1; then
+                    ((deleted_ms_sweep++)) || true
+                # Then try by account name
+                elif security delete-generic-password -a "$entry" >/dev/null 2>&1; then
+                    ((deleted_ms_sweep++)) || true
+                fi
+            fi
+        done <<< "$microsoft_sweep"
+    fi
+    if [[ $deleted_ms_sweep -gt 0 ]]; then
+        print_removed "Additional Microsoft entries ($deleted_ms_sweep)"
+        ((REMOVED_COUNT+=deleted_ms_sweep)) || true
     fi
 }
 
