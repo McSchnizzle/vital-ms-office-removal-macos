@@ -17,7 +17,7 @@
 # - Comprehensive research from multiple sources
 #
 # Created: December 2025
-# Version: 1.1
+# Version: 1.2
 #
 # DISCLAIMER: Use at your own risk. Always backup important data first.
 #
@@ -35,6 +35,7 @@ NC='\033[0m' # No Color
 # Counters
 FOUND_COUNT=0
 REMOVED_COUNT=0
+PROTECTED_COUNT=0
 
 # Mode flags
 AUDIT_ONLY=true
@@ -136,13 +137,23 @@ remove_path() {
     local description="$2"
 
     if [[ -e "$path" ]]; then
-        # Always try with sudo for reliability
+        # Try to remove extended attributes first (helps with sandboxed containers)
+        xattr -cr "$path" 2>/dev/null || true
+
+        # Try removal with sudo
         if sudo rm -rf "$path" 2>/dev/null; then
             print_removed "$description"
             return 0
         else
-            print_error "Could not remove $path"
-            return 1
+            # Check if it's a container protected by containermanagerd
+            if [[ "$path" == *"/Containers/"* ]] || [[ "$path" == *"/Group Containers/"* ]]; then
+                print_warning "Protected by macOS sandbox: $(basename "$path") (requires restart)"
+                ((PROTECTED_COUNT++)) || true
+                return 1
+            else
+                print_error "Could not remove $path"
+                return 1
+            fi
         fi
     fi
     return 1
@@ -730,13 +741,23 @@ show_removal_summary() {
     print_header "REMOVAL SUMMARY"
 
     echo -e "${GREEN}Successfully removed $REMOVED_COUNT Microsoft items.${NC}"
+
+    if [[ $PROTECTED_COUNT -gt 0 ]]; then
+        echo ""
+        echo -e "${YELLOW}⚠️  $PROTECTED_COUNT items are protected by macOS sandbox.${NC}"
+        echo -e "${YELLOW}   These are app containers that macOS protects while running.${NC}"
+        echo ""
+        echo -e "${BOLD}After you restart your Mac:${NC}"
+        echo -e "  Run this script again with ${CYAN}--remove${NC} to remove remaining items."
+        echo -e "  Or use ${CYAN}--audit${NC} to verify what's left."
+    fi
+
     echo ""
     print_info "Manual steps remaining:"
     echo "  1. Check Login Items: System Settings → General → Login Items"
     echo "  2. Check Keychain Access: Search for 'Microsoft' and delete entries"
     echo "  3. Remove Microsoft apps from your Dock (right-click → Remove from Dock)"
     echo "  4. Empty your Trash"
-    echo "  5. Restart your Mac"
     echo ""
 }
 
